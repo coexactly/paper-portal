@@ -1,0 +1,52 @@
+{
+  "manifest_version": 3,
+  "name": "Paper portal",
+  "version": "0.1.0",
+  "description": "Open the current paper in arXiv and Sci-Hub using metadata extracted from the page.",
+  "permissions": [
+    "storage",
+    "notifications",
+    "contextMenus"
+  ],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "scripts": [
+      "src/doi-core.js",
+      "background.js"
+    ]
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "src/doi-core.js",
+        "content-script.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "Paper portal",
+    "default_icon": "icons/toolbar.svg"
+  },
+  "icons": {
+    "48": "icons/toolbar.svg",
+    "96": "icons/toolbar.svg"
+  },
+  "options_ui": {
+    "page": "options/options.html",
+    "open_in_tab": true
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "doi-to-scihub@local",
+      "strict_min_version": "121.0"
+    }
+  }
+}

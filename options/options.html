@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Paper portal Settings</title>
+    <link rel="stylesheet" href="options.css">
+  </head>
+  <body>
+    <main class="page">
+      <section class="panel">
+        <p class="eyebrow">Paper portal</p>
+        <h1>Mirror Settings</h1>
+        <p class="intro">
+          Set the Sci-Hub base URL this extension should use when opening a DOI or fallback URL.
+        </p>
+
+        <form id="settings-form" novalidate>
+          <label class="field" for="scihub-base-url">
+            <span>Sci-Hub base URL</span>
+            <input
+              id="scihub-base-url"
+              name="scihub-base-url"
+              type="url"
+              inputmode="url"
+              placeholder="https://sci-hub.se"
+              required
+            >
+          </label>
+
+          <div class="actions">
+            <button type="submit">Save</button>
+            <button id="reset-default" type="button" class="secondary">Reset Default</button>
+          </div>
+        </form>
+
+        <p id="status" class="status" aria-live="polite"></p>
+      </section>
+    </main>
+
+    <script src="options.js"></script>
+  </body>
+</html>
