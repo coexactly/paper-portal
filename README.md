@@ -24,7 +24,7 @@ For persistent personal use, package the extension as an `.xpi` and install it i
 
 ## Settings
 
-Open the extension's preferences page and set the Sci-Hub mirror you want to use. The default is `https://sci-hub.se`, but the extension is designed so you can replace that without editing code.
+Open the extension's preferences page and set the Sci-Hub mirror you want to use. The default is `https://sci-hub.ru`, but the extension is designed so you can replace that without editing code.
 
 ## Testing
 

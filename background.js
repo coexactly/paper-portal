@@ -1,5 +1,5 @@
 const SCIHUB_BASE_KEY = "sciHubBaseUrl";
-const DEFAULT_SCIHUB_BASE_URL = "https://sci-hub.se";
+const DEFAULT_SCIHUB_BASE_URL = "https://sci-hub.ru";
 const MENU_OPEN_LINK = "open-link-in-scihub";
 const MENU_OPEN_SELECTION = "open-selection-in-scihub";
 

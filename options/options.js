@@ -1,5 +1,5 @@
 const SCIHUB_BASE_KEY = "sciHubBaseUrl";
-const DEFAULT_SCIHUB_BASE_URL = "https://sci-hub.se";
+const DEFAULT_SCIHUB_BASE_URL = "https://sci-hub.ru";
 
 const form = document.getElementById("settings-form");
 const input = document.getElementById("scihub-base-url");
