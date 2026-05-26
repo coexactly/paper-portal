@@ -201,6 +201,9 @@
           score += 30;
         }
         break;
+      case "current_url":
+        score += 115;
+        break;
       case "head_link":
         score += 110;
         break;
@@ -253,9 +256,16 @@
 
   function collectEvidenceFromSnapshot(snapshot) {
     const evidence = [];
+    const currentUrl = snapshot && snapshot.currentUrl ? String(snapshot.currentUrl) : "";
     const metaEntries = Array.isArray(snapshot.meta) ? snapshot.meta : [];
     const linkEntries = Array.isArray(snapshot.links) ? snapshot.links : [];
     const textBlocks = Array.isArray(snapshot.textBlocks) ? snapshot.textBlocks : [];
+    const fallbackTextBlocks = Array.isArray(snapshot.fallbackTextBlocks) ? snapshot.fallbackTextBlocks : [];
+    const currentUrlDoi = normalizeDoi(currentUrl);
+
+    if (currentUrlDoi) {
+      pushEvidence(evidence, currentUrlDoi, "current_url", currentUrl, "current-url");
+    }
 
     for (const meta of metaEntries) {
       const content = meta && meta.content ? String(meta.content) : "";
@@ -297,6 +307,18 @@
 
       for (const doi of findAllDois(text)) {
         pushEvidence(evidence, doi, sourceType, text.slice(0, 280), originHint);
+      }
+    }
+
+    if (evidence.length === 0) {
+      for (const block of fallbackTextBlocks) {
+        const text = block && block.text ? String(block.text) : "";
+        const sourceType = block && block.sourceType ? String(block.sourceType) : "text";
+        const originHint = block && block.originHint ? String(block.originHint) : "";
+
+        for (const doi of findAllDois(text)) {
+          pushEvidence(evidence, doi, sourceType, text.slice(0, 280), originHint);
+        }
       }
     }
 

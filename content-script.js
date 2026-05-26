@@ -14,7 +14,12 @@ function collectPageData() {
     textBlocks: collectTextBlocks()
   };
 
-  const extraction = DoiCore.extractFromSnapshot(snapshot);
+  let extraction = DoiCore.extractFromSnapshot(snapshot);
+
+  if (!extraction.bestCandidate) {
+    snapshot.fallbackTextBlocks = collectFallbackTextBlocks();
+    extraction = DoiCore.extractFromSnapshot(snapshot);
+  }
 
   return Object.assign({}, extraction, {
     pageTitle: extractBestTitle(snapshot.meta),
@@ -84,6 +89,13 @@ function collectTextBlocks() {
   for (const node of document.querySelectorAll("script[type='application/ld+json']")) {
     pushTextBlock(blocks, seen, node.textContent || "", "structured_text", "ld+json");
   }
+
+  return blocks;
+}
+
+function collectFallbackTextBlocks() {
+  const blocks = [];
+  const seen = new Set();
 
   pushTextBlock(blocks, seen, document.body ? document.body.innerText || "" : "", "text", "body");
 

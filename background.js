@@ -77,11 +77,6 @@ async function handleToolbarClick(tab) {
   }
 
   const pageData = await requestPageExtraction(tab.id);
-  const arxivUrl = await resolveArxivUrl(pageData);
-
-  if (arxivUrl) {
-    await openUrl(arxivUrl);
-  }
 
   const sciHubValue = pageData && pageData.bestCandidate && pageData.bestCandidate.doi
     ? pageData.bestCandidate.doi
@@ -97,6 +92,18 @@ async function handleToolbarClick(tab) {
   }
 
   await openInSciHub(sciHubValue);
+  openArxivWhenResolved(pageData);
+}
+
+function openArxivWhenResolved(pageData) {
+  resolveArxivUrl(pageData).then(function (arxivUrl) {
+    if (arxivUrl) {
+      return openUrl(arxivUrl);
+    }
+    return undefined;
+  }).catch(function (error) {
+    console.warn("arXiv resolution failed", error);
+  });
 }
 
 async function handleMenuClick(info, tab) {

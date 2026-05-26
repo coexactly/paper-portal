@@ -6,6 +6,9 @@ function run() {
   testNormalizeDoiUrl();
   testNormalizeDoiNoise();
   testTextExtraction();
+  testCurrentUrlExtraction();
+  testMetaBeatsCurrentUrl();
+  testFallbackTextOnlyWhenNeeded();
   testMetaBeatsReferenceLink();
   testAggregatedSignalsBeatSingleWeakSignal();
   testTitleNormalization();
@@ -33,6 +36,69 @@ function testTextExtraction() {
     DoiCore.findAllDois("The accepted manuscript DOI is 10.1038/s41586-020-2649-2."),
     ["10.1038/s41586-020-2649-2"]
   );
+}
+
+function testCurrentUrlExtraction() {
+  const result = DoiCore.extractFromSnapshot({
+    currentUrl: "https://iopscience.iop.org/article/10.1088/0031-8949/23/6/002",
+    meta: [],
+    links: [],
+    textBlocks: []
+  });
+
+  assert.equal(result.bestCandidate.doi, "10.1088/0031-8949/23/6/002");
+  assert.deepEqual(result.bestCandidate.sources, ["current_url"]);
+}
+
+function testMetaBeatsCurrentUrl() {
+  const result = DoiCore.extractFromSnapshot({
+    currentUrl: "https://example.test/article/10.9999/url.1",
+    meta: [
+      {
+        name: "citation_doi",
+        content: "10.1111/article.2025.12345"
+      }
+    ],
+    links: [],
+    textBlocks: []
+  });
+
+  assert.equal(result.bestCandidate.doi, "10.1111/article.2025.12345");
+}
+
+function testFallbackTextOnlyWhenNeeded() {
+  const withFastEvidence = DoiCore.extractFromSnapshot({
+    currentUrl: "https://example.test/article/10.2222/url.2",
+    meta: [],
+    links: [],
+    textBlocks: [],
+    fallbackTextBlocks: [
+      {
+        text: "References 10.9999/reference.4",
+        sourceType: "text",
+        originHint: "body"
+      }
+    ]
+  });
+
+  assert.equal(withFastEvidence.bestCandidate.doi, "10.2222/url.2");
+  assert.equal(withFastEvidence.evidenceCount, 1);
+
+  const fallbackOnly = DoiCore.extractFromSnapshot({
+    currentUrl: "https://example.test/article",
+    meta: [],
+    links: [],
+    textBlocks: [],
+    fallbackTextBlocks: [
+      {
+        text: "Article DOI: 10.3333/body.3",
+        sourceType: "text",
+        originHint: "body"
+      }
+    ]
+  });
+
+  assert.equal(fallbackOnly.bestCandidate.doi, "10.3333/body.3");
 }
 
 function testMetaBeatsReferenceLink() {
