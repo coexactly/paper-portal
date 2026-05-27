@@ -9,6 +9,7 @@ function run() {
   testCurrentUrlExtraction();
   testMetaBeatsCurrentUrl();
   testFallbackTextOnlyWhenNeeded();
+  testJstorStableUrlSuppressesLooseDoiEvidence();
   testMetaBeatsReferenceLink();
   testAggregatedSignalsBeatSingleWeakSignal();
   testTitleNormalization();
@@ -99,6 +100,37 @@ function testFallbackTextOnlyWhenNeeded() {
   });
 
   assert.equal(fallbackOnly.bestCandidate.doi, "10.3333/body.3");
+}
+
+function testJstorStableUrlSuppressesLooseDoiEvidence() {
+  const result = DoiCore.extractFromSnapshot({
+    currentUrl: "https://www.jstor.org/stable/48662152",
+    meta: [],
+    links: [
+      {
+        href: "https://doi.org/10.9999/reference.4",
+        text: "Reference DOI",
+        originHint: "body-link"
+      }
+    ],
+    textBlocks: [
+      {
+        text: "References 10.9999/reference.4",
+        sourceType: "structured_text",
+        originHint: "main"
+      }
+    ],
+    fallbackTextBlocks: [
+      {
+        text: "References 10.9999/reference.5",
+        sourceType: "text",
+        originHint: "body"
+      }
+    ]
+  });
+
+  assert.equal(result.bestCandidate, null);
+  assert.equal(result.evidenceCount, 0);
 }
 
 function testMetaBeatsReferenceLink() {

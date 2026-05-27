@@ -77,9 +77,10 @@ async function handleToolbarClick(tab) {
   }
 
   const pageData = await requestPageExtraction(tab.id);
+  const resolvedDoi = await resolvePageDoi(pageData, tab.url);
 
-  const sciHubValue = pageData && pageData.bestCandidate && pageData.bestCandidate.doi
-    ? pageData.bestCandidate.doi
+  const sciHubValue = resolvedDoi
+    ? resolvedDoi
     : pageData && pageData.currentUrl ? pageData.currentUrl : tab.url;
 
   if (!sciHubValue || !/^https?:/i.test(sciHubValue) && !DoiCore.normalizeDoi(sciHubValue)) {
@@ -87,12 +88,40 @@ async function handleToolbarClick(tab) {
     return;
   }
 
-  if (!(pageData && pageData.bestCandidate && pageData.bestCandidate.doi)) {
+  if (!resolvedDoi) {
     await notifyUser("No DOI found. Falling back to the page URL for Sci-Hub.");
   }
 
   await openInSciHub(sciHubValue);
-  openArxivWhenResolved(pageData);
+  openArxivWhenResolved(pageDataWithDoi(pageData, resolvedDoi));
+}
+
+async function resolvePageDoi(pageData, tabUrl) {
+  const doi = pageData && pageData.bestCandidate && pageData.bestCandidate.doi;
+
+  if (doi) {
+    return doi;
+  }
+
+  const currentUrl = pageData && pageData.currentUrl ? pageData.currentUrl : tabUrl;
+
+  if (DoiCore.isJstorStableUrl(currentUrl)) {
+    return findDoiViaCrossref(pageData && pageData.pageTitle, pageData && pageData.authors || []);
+  }
+
+  return null;
+}
+
+function pageDataWithDoi(pageData, doi) {
+  if (!pageData || !doi) {
+    return pageData;
+  }
+
+  return Object.assign({}, pageData, {
+    bestCandidate: Object.assign({}, pageData.bestCandidate || {}, {
+      doi: doi
+    })
+  });
 }
 
 function openArxivWhenResolved(pageData) {
@@ -191,6 +220,89 @@ async function findArxivViaOpenAlex(doi) {
     console.warn("OpenAlex lookup failed", error);
     return null;
   }
+}
+
+async function findDoiViaCrossref(pageTitle, authors) {
+  const normalizedTitle = DoiCore.normalizePaperTitle(pageTitle);
+
+  if (!normalizedTitle) {
+    return null;
+  }
+
+  const endpoint = new URL("https://api.crossref.org/works");
+  const firstAuthor = Array.isArray(authors) && authors.length > 0 ? authors[0] : "";
+
+  endpoint.searchParams.set("query.title", pageTitle);
+  endpoint.searchParams.set("rows", "5");
+  endpoint.searchParams.set("select", "DOI,title,author");
+
+  if (firstAuthor) {
+    endpoint.searchParams.set("query.author", firstAuthor);
+  }
+
+  try {
+    const payload = await fetchJson(endpoint.toString());
+    return pickBestCrossrefDoi(payload, normalizedTitle, firstAuthor);
+  } catch (error) {
+    console.warn("Crossref DOI lookup failed", error);
+    return null;
+  }
+}
+
+function pickBestCrossrefDoi(payload, normalizedTitle, firstAuthor) {
+  const items = payload && payload.message && Array.isArray(payload.message.items)
+    ? payload.message.items
+    : [];
+  const expectedSurname = DoiCore.extractAuthorSurname(firstAuthor);
+  let best = null;
+
+  for (const item of items) {
+    const doi = DoiCore.normalizeDoi(item && item.DOI);
+    const title = extractCrossrefTitle(item);
+
+    if (!doi || !title) {
+      continue;
+    }
+
+    const similarity = DoiCore.titleSimilarity(normalizedTitle, title);
+
+    if (similarity < 0.92) {
+      continue;
+    }
+
+    const authorMatch = !expectedSurname || extractCrossrefAuthorSurnames(item).indexOf(expectedSurname) !== -1;
+
+    if (!authorMatch) {
+      continue;
+    }
+
+    if (!best || similarity > best.similarity) {
+      best = {
+        doi: doi,
+        similarity: similarity
+      };
+    }
+  }
+
+  return best ? best.doi : null;
+}
+
+function extractCrossrefTitle(item) {
+  if (!item || !Array.isArray(item.title) || item.title.length === 0) {
+    return "";
+  }
+
+  return String(item.title[0] || "").replace(/\s+/g, " ").trim();
+}
+
+function extractCrossrefAuthorSurnames(item) {
+  if (!item || !Array.isArray(item.author)) {
+    return [];
+  }
+
+  return item.author.map(function (author) {
+    return DoiCore.extractAuthorSurname(author && (author.family || author.name || ""));
+  }).filter(Boolean);
 }
 
 function extractArxivUrlFromOpenAlex(payload) {

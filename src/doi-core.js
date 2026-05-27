@@ -189,6 +189,19 @@
     return dois;
   }
 
+  function isJstorStableUrl(value) {
+    if (!value) {
+      return false;
+    }
+
+    try {
+      const url = new URL(String(value));
+      return /(^|\.)jstor\.org$/i.test(url.hostname) && /^\/stable\/[^/]+/i.test(url.pathname);
+    } catch (_error) {
+      return false;
+    }
+  }
+
   function scoreEvidence(entry) {
     let score = 0;
 
@@ -262,6 +275,7 @@
     const textBlocks = Array.isArray(snapshot.textBlocks) ? snapshot.textBlocks : [];
     const fallbackTextBlocks = Array.isArray(snapshot.fallbackTextBlocks) ? snapshot.fallbackTextBlocks : [];
     const currentUrlDoi = normalizeDoi(currentUrl);
+    const skipLooseDoiEvidence = isJstorStableUrl(currentUrl);
 
     if (currentUrlDoi) {
       pushEvidence(evidence, currentUrlDoi, "current_url", currentUrl, "current-url");
@@ -278,39 +292,41 @@
       }
     }
 
-    for (const link of linkEntries) {
-      const href = link && link.href ? String(link.href) : "";
-      const text = link && link.text ? String(link.text) : "";
-      const originHint = link && link.originHint ? String(link.originHint) : "";
-      const hrefDoi = normalizeDoi(href);
-      const textDois = findAllDois(text);
+    if (!skipLooseDoiEvidence) {
+      for (const link of linkEntries) {
+        const href = link && link.href ? String(link.href) : "";
+        const text = link && link.text ? String(link.text) : "";
+        const originHint = link && link.originHint ? String(link.originHint) : "";
+        const hrefDoi = normalizeDoi(href);
+        const textDois = findAllDois(text);
 
-      if (hrefDoi) {
-        pushEvidence(
-          evidence,
-          hrefDoi,
-          originHint.indexOf("head:") === 0 ? "head_link" : "link_href",
-          href,
-          originHint
-        );
+        if (hrefDoi) {
+          pushEvidence(
+            evidence,
+            hrefDoi,
+            originHint.indexOf("head:") === 0 ? "head_link" : "link_href",
+            href,
+            originHint
+          );
+        }
+
+        for (const textDoi of textDois) {
+          pushEvidence(evidence, textDoi, "link_text", text, originHint);
+        }
       }
 
-      for (const textDoi of textDois) {
-        pushEvidence(evidence, textDoi, "link_text", text, originHint);
+      for (const block of textBlocks) {
+        const text = block && block.text ? String(block.text) : "";
+        const sourceType = block && block.sourceType ? String(block.sourceType) : "text";
+        const originHint = block && block.originHint ? String(block.originHint) : "";
+
+        for (const doi of findAllDois(text)) {
+          pushEvidence(evidence, doi, sourceType, text.slice(0, 280), originHint);
+        }
       }
     }
 
-    for (const block of textBlocks) {
-      const text = block && block.text ? String(block.text) : "";
-      const sourceType = block && block.sourceType ? String(block.sourceType) : "text";
-      const originHint = block && block.originHint ? String(block.originHint) : "";
-
-      for (const doi of findAllDois(text)) {
-        pushEvidence(evidence, doi, sourceType, text.slice(0, 280), originHint);
-      }
-    }
-
-    if (evidence.length === 0) {
+    if (!skipLooseDoiEvidence && evidence.length === 0) {
       for (const block of fallbackTextBlocks) {
         const text = block && block.text ? String(block.text) : "";
         const sourceType = block && block.sourceType ? String(block.sourceType) : "text";
@@ -400,6 +416,7 @@
     extractFromSnapshot,
     extractAuthorSurname,
     findAllDois,
+    isJstorStableUrl,
     normalizeDoi,
     normalizePaperTitle,
     rankCandidates

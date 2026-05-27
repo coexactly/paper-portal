@@ -7,16 +7,17 @@ browser.runtime.onMessage.addListener(function (message) {
 });
 
 function collectPageData() {
+  const isJstorStablePage = DoiCore.isJstorStableUrl(window.location.href);
   const snapshot = {
     currentUrl: window.location.href,
     meta: collectMetaEntries(),
     links: collectLinkEntries(),
-    textBlocks: collectTextBlocks()
+    textBlocks: isJstorStablePage ? [] : collectTextBlocks()
   };
 
   let extraction = DoiCore.extractFromSnapshot(snapshot);
 
-  if (!extraction.bestCandidate) {
+  if (!extraction.bestCandidate && !isJstorStablePage) {
     snapshot.fallbackTextBlocks = collectFallbackTextBlocks();
     extraction = DoiCore.extractFromSnapshot(snapshot);
   }
