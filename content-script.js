@@ -23,7 +23,7 @@ function collectPageData() {
   }
 
   return Object.assign({}, extraction, {
-    pageTitle: extractBestTitle(snapshot.meta),
+    pageTitle: extractBestTitle(snapshot.meta, isJstorStablePage),
     authors: extractAuthors(snapshot.meta)
   });
 }
@@ -146,7 +146,7 @@ function describeLinkContext(link) {
   return parts.join(" ");
 }
 
-function extractBestTitle(metaEntries) {
+function extractBestTitle(metaEntries, isJstorStablePage) {
   const preferredMetaNames = [
     "citation_title",
     "dc.title",
@@ -170,15 +170,15 @@ function extractBestTitle(metaEntries) {
     if (keys.some(function (value) {
       return preferredMetaNames.indexOf(value) !== -1;
     })) {
-      metaCandidates.push(cleanTitleCandidate(entry.content));
+      metaCandidates.push(cleanTitleCandidate(entry.content, isJstorStablePage));
     }
   }
 
   const titleCandidates = metaCandidates
     .concat([
-      readFirstText("h1"),
-      readFirstText("article h1, main h1"),
-      cleanTitleCandidate(document.title)
+      readFirstText("h1", isJstorStablePage),
+      readFirstText("article h1, main h1", isJstorStablePage),
+      cleanTitleCandidate(document.title, isJstorStablePage)
     ])
     .filter(Boolean);
 
@@ -279,11 +279,19 @@ function pushAuthorCandidate(authors, seen, value) {
   authors.push(normalized);
 }
 
-function cleanTitleCandidate(value) {
+function cleanTitleCandidate(value, preferFirstSegment) {
   const normalized = String(value || "").replace(/\s+/g, " ").trim();
 
   if (!normalized) {
     return "";
+  }
+
+  if (preferFirstSegment) {
+    const jstorCleaned = cleanJstorTitleCandidate(normalized);
+
+    if (jstorCleaned) {
+      return jstorCleaned;
+    }
   }
 
   const separators = [" | ", " - ", " — ", " :: "];
@@ -311,7 +319,33 @@ function cleanTitleCandidate(value) {
   return normalized;
 }
 
-function readFirstText(selector) {
+function cleanJstorTitleCandidate(value) {
+  let result = String(value || "")
+    .replace(/\s+on\s+JSTOR\s*$/i, "")
+    .replace(/\s*\|\s*JSTOR\s*$/i, "")
+    .replace(/\s*-\s*JSTOR\s*$/i, "")
+    .trim();
+  const separators = [" | ", " - ", " — ", " :: "];
+
+  for (const separator of separators) {
+    if (result.indexOf(separator) === -1) {
+      continue;
+    }
+
+    const first = result.split(separator).map(function (part) {
+      return part.trim();
+    }).filter(Boolean)[0];
+
+    if (first && first.length >= 12) {
+      result = first;
+      break;
+    }
+  }
+
+  return result;
+}
+
+function readFirstText(selector, preferFirstSegment) {
   const node = document.querySelector(selector);
-  return node ? cleanTitleCandidate(node.textContent || "") : "";
+  return node ? cleanTitleCandidate(node.textContent || "", preferFirstSegment) : "";
 }

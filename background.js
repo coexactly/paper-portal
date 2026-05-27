@@ -2,40 +2,45 @@ const SCIHUB_BASE_KEY = "sciHubBaseUrl";
 const DEFAULT_SCIHUB_BASE_URL = "https://sci-hub.ru";
 const MENU_OPEN_LINK = "open-link-in-scihub";
 const MENU_OPEN_SELECTION = "open-selection-in-scihub";
+const DoiApi = typeof DoiCore !== "undefined"
+  ? DoiCore
+  : typeof require === "function" ? require("./src/doi-core.js") : null;
 
-initialize().catch(function (error) {
-  console.error("Initialization failed", error);
-});
-
-browser.runtime.onInstalled.addListener(function () {
+if (typeof browser !== "undefined") {
   initialize().catch(function (error) {
-    console.error("onInstalled initialization failed", error);
+    console.error("Initialization failed", error);
   });
-});
 
-browser.action.onClicked.addListener(function (tab) {
-  handleToolbarClick(tab).catch(function (error) {
-    console.error("Toolbar action failed", error);
-    notifyUser("Could not open arXiv or Sci-Hub for this page.");
+  browser.runtime.onInstalled.addListener(function () {
+    initialize().catch(function (error) {
+      console.error("onInstalled initialization failed", error);
+    });
   });
-});
 
-browser.contextMenus.onClicked.addListener(function (info, tab) {
-  handleMenuClick(info, tab).catch(function (error) {
-    console.error("Context menu action failed", error);
-    notifyUser("Could not open the selected item in Sci-Hub.");
+  browser.action.onClicked.addListener(function (tab) {
+    handleToolbarClick(tab).catch(function (error) {
+      console.error("Toolbar action failed", error);
+      notifyUser("Could not open arXiv or Sci-Hub for this page.");
+    });
   });
-});
 
-browser.storage.onChanged.addListener(function (_changes, areaName) {
-  if (areaName !== "local") {
-    return;
-  }
-
-  initialize().catch(function (error) {
-    console.error("Storage change initialization failed", error);
+  browser.contextMenus.onClicked.addListener(function (info, tab) {
+    handleMenuClick(info, tab).catch(function (error) {
+      console.error("Context menu action failed", error);
+      notifyUser("Could not open the selected item in Sci-Hub.");
+    });
   });
-});
+
+  browser.storage.onChanged.addListener(function (_changes, areaName) {
+    if (areaName !== "local") {
+      return;
+    }
+
+    initialize().catch(function (error) {
+      console.error("Storage change initialization failed", error);
+    });
+  });
+}
 
 async function initialize() {
   await ensureDefaultSettings();
@@ -83,7 +88,7 @@ async function handleToolbarClick(tab) {
     ? resolvedDoi
     : pageData && pageData.currentUrl ? pageData.currentUrl : tab.url;
 
-  if (!sciHubValue || !/^https?:/i.test(sciHubValue) && !DoiCore.normalizeDoi(sciHubValue)) {
+  if (!sciHubValue || !/^https?:/i.test(sciHubValue) && !DoiApi.normalizeDoi(sciHubValue)) {
     await notifyUser("No DOI was found, and this page URL cannot be sent to Sci-Hub.");
     return;
   }
@@ -105,8 +110,8 @@ async function resolvePageDoi(pageData, tabUrl) {
 
   const currentUrl = pageData && pageData.currentUrl ? pageData.currentUrl : tabUrl;
 
-  if (DoiCore.isJstorStableUrl(currentUrl)) {
-    return findDoiViaCrossref(pageData && pageData.pageTitle, pageData && pageData.authors || []);
+  if (DoiApi.isJstorStableUrl(currentUrl)) {
+    return findDoiViaCrossref(pageData && pageData.pageTitle);
   }
 
   return null;
@@ -137,7 +142,7 @@ function openArxivWhenResolved(pageData) {
 
 async function handleMenuClick(info, tab) {
   if (info.menuItemId === MENU_OPEN_LINK) {
-    const doi = DoiCore.normalizeDoi(info.linkUrl);
+    const doi = DoiApi.normalizeDoi(info.linkUrl);
 
     if (doi) {
       await openInSciHub(doi);
@@ -155,7 +160,7 @@ async function handleMenuClick(info, tab) {
   }
 
   if (info.menuItemId === MENU_OPEN_SELECTION) {
-    const doi = DoiCore.normalizeDoi(info.selectionText);
+    const doi = DoiApi.normalizeDoi(info.selectionText);
 
     if (doi) {
       await openInSciHub(doi);
@@ -222,57 +227,105 @@ async function findArxivViaOpenAlex(doi) {
   }
 }
 
-async function findDoiViaCrossref(pageTitle, authors) {
-  const normalizedTitle = DoiCore.normalizePaperTitle(pageTitle);
+async function findDoiViaCrossref(pageTitle) {
+  const titleVariants = createCrossrefTitleVariants(pageTitle);
 
-  if (!normalizedTitle) {
+  if (titleVariants.length === 0) {
     return null;
   }
 
-  const endpoint = new URL("https://api.crossref.org/works");
-  const firstAuthor = Array.isArray(authors) && authors.length > 0 ? authors[0] : "";
+  const normalizedTitles = titleVariants.map(function (title) {
+    return DoiApi.normalizePaperTitle(title);
+  }).filter(Boolean);
 
-  endpoint.searchParams.set("query.title", pageTitle);
-  endpoint.searchParams.set("rows", "5");
-  endpoint.searchParams.set("select", "DOI,title,author");
+  for (const title of titleVariants) {
+    const endpoint = new URL("https://api.crossref.org/works");
 
-  if (firstAuthor) {
-    endpoint.searchParams.set("query.author", firstAuthor);
+    endpoint.searchParams.set("query.title", title);
+    endpoint.searchParams.set("rows", "10");
+    endpoint.searchParams.set("select", "DOI,title,author");
+
+    try {
+      const payload = await fetchJson(endpoint.toString());
+      const doi = pickBestCrossrefDoi(payload, normalizedTitles);
+
+      if (doi) {
+        return doi;
+      }
+    } catch (error) {
+      console.warn("Crossref DOI lookup failed", error);
+    }
   }
 
-  try {
-    const payload = await fetchJson(endpoint.toString());
-    return pickBestCrossrefDoi(payload, normalizedTitle, firstAuthor);
-  } catch (error) {
-    console.warn("Crossref DOI lookup failed", error);
-    return null;
-  }
+  return null;
 }
 
-function pickBestCrossrefDoi(payload, normalizedTitle, firstAuthor) {
+function createCrossrefTitleVariants(pageTitle) {
+  const variants = [];
+  const seen = new Set();
+  const rawTitle = String(pageTitle || "").replace(/\s+/g, " ").trim();
+
+  pushTitleVariant(variants, seen, cleanJstorTitleForCrossref(rawTitle));
+  pushTitleVariant(variants, seen, rawTitle);
+
+  return variants;
+}
+
+function pushTitleVariant(variants, seen, title) {
+  const normalized = String(title || "").replace(/\s+/g, " ").trim();
+  const key = DoiApi.normalizePaperTitle(normalized);
+
+  if (!key || seen.has(key)) {
+    return;
+  }
+
+  seen.add(key);
+  variants.push(normalized);
+}
+
+function cleanJstorTitleForCrossref(value) {
+  let result = String(value || "")
+    .replace(/\s+on\s+JSTOR\s*$/i, "")
+    .replace(/\s*\|\s*JSTOR\s*$/i, "")
+    .replace(/\s*-\s*JSTOR\s*$/i, "")
+    .trim();
+  const separators = [" | ", " - ", " — ", " :: "];
+
+  for (const separator of separators) {
+    if (result.indexOf(separator) === -1) {
+      continue;
+    }
+
+    const first = result.split(separator).map(function (part) {
+      return part.trim();
+    }).filter(Boolean)[0];
+
+    if (first && first.length >= 12) {
+      result = first;
+      break;
+    }
+  }
+
+  return result;
+}
+
+function pickBestCrossrefDoi(payload, normalizedTitles) {
   const items = payload && payload.message && Array.isArray(payload.message.items)
     ? payload.message.items
     : [];
-  const expectedSurname = DoiCore.extractAuthorSurname(firstAuthor);
   let best = null;
 
   for (const item of items) {
-    const doi = DoiCore.normalizeDoi(item && item.DOI);
+    const doi = DoiApi.normalizeDoi(item && item.DOI);
     const title = extractCrossrefTitle(item);
 
     if (!doi || !title) {
       continue;
     }
 
-    const similarity = DoiCore.titleSimilarity(normalizedTitle, title);
+    const similarity = bestTitleSimilarity(normalizedTitles, title);
 
     if (similarity < 0.92) {
-      continue;
-    }
-
-    const authorMatch = !expectedSurname || extractCrossrefAuthorSurnames(item).indexOf(expectedSurname) !== -1;
-
-    if (!authorMatch) {
       continue;
     }
 
@@ -287,22 +340,22 @@ function pickBestCrossrefDoi(payload, normalizedTitle, firstAuthor) {
   return best ? best.doi : null;
 }
 
+function bestTitleSimilarity(normalizedTitles, candidateTitle) {
+  let best = 0;
+
+  for (const normalizedTitle of normalizedTitles) {
+    best = Math.max(best, DoiApi.titleSimilarity(normalizedTitle, candidateTitle));
+  }
+
+  return best;
+}
+
 function extractCrossrefTitle(item) {
   if (!item || !Array.isArray(item.title) || item.title.length === 0) {
     return "";
   }
 
   return String(item.title[0] || "").replace(/\s+/g, " ").trim();
-}
-
-function extractCrossrefAuthorSurnames(item) {
-  if (!item || !Array.isArray(item.author)) {
-    return [];
-  }
-
-  return item.author.map(function (author) {
-    return DoiCore.extractAuthorSurname(author && (author.family || author.name || ""));
-  }).filter(Boolean);
 }
 
 function extractArxivUrlFromOpenAlex(payload) {
@@ -385,7 +438,7 @@ function canonicalizeArxivUrl(value) {
 }
 
 async function findArxivViaSearch(pageTitle, authors) {
-  const normalizedTitle = DoiCore.normalizePaperTitle(pageTitle);
+  const normalizedTitle = DoiApi.normalizePaperTitle(pageTitle);
 
   if (!normalizedTitle) {
     return null;
@@ -463,18 +516,18 @@ function parseArxivFeed(xmlText) {
 }
 
 function pickBestArxivMatch(entries, normalizedTitle, firstAuthor) {
-  const expectedSurname = DoiCore.extractAuthorSurname(firstAuthor);
+  const expectedSurname = DoiApi.extractAuthorSurname(firstAuthor);
   let best = null;
 
   for (const entry of entries) {
-    const similarity = DoiCore.titleSimilarity(normalizedTitle, entry.title);
+    const similarity = DoiApi.titleSimilarity(normalizedTitle, entry.title);
 
     if (similarity < 0.92) {
       continue;
     }
 
     const authorMatch = !expectedSurname || entry.authors.some(function (author) {
-      return DoiCore.extractAuthorSurname(author) === expectedSurname;
+      return DoiApi.extractAuthorSurname(author) === expectedSurname;
     });
 
     if (!authorMatch) {
@@ -554,4 +607,13 @@ async function notifyUser(message) {
     title: "Paper portal",
     message
   });
+}
+
+if (typeof module === "object" && module.exports) {
+  module.exports = {
+    cleanJstorTitleForCrossref,
+    createCrossrefTitleVariants,
+    findDoiViaCrossref,
+    pickBestCrossrefDoi
+  };
 }
