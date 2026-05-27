@@ -111,7 +111,8 @@ async function resolvePageDoi(pageData, tabUrl) {
   const currentUrl = pageData && pageData.currentUrl ? pageData.currentUrl : tabUrl;
 
   if (DoiApi.isJstorStableUrl(currentUrl)) {
-    return findDoiViaCrossref(pageData && pageData.pageTitle);
+    return await findDoiViaCrossref(pageData && pageData.pageTitle) ||
+      findDoiViaJstorStableUrl(currentUrl);
   }
 
   return null;
@@ -258,6 +259,47 @@ async function findDoiViaCrossref(pageTitle) {
   }
 
   return null;
+}
+
+async function findDoiViaJstorStableUrl(currentUrl) {
+  const stableId = extractJstorStableId(currentUrl);
+
+  if (!stableId) {
+    return null;
+  }
+
+  try {
+    const citationText = await fetchText("https://www.jstor.org/citation/text/" + encodeURIComponent(stableId));
+    const title = extractJstorCitationTitle(citationText);
+    return findDoiViaCrossref(title);
+  } catch (error) {
+    console.warn("JSTOR citation lookup failed", error);
+    return null;
+  }
+}
+
+function extractJstorStableId(currentUrl) {
+  if (!currentUrl) {
+    return "";
+  }
+
+  try {
+    const url = new URL(String(currentUrl));
+    const match = url.pathname.match(/^\/stable\/([^/?#]+)/i);
+    return match ? match[1] : "";
+  } catch (_error) {
+    return "";
+  }
+}
+
+function extractJstorCitationTitle(citationText) {
+  const match = String(citationText || "").match(/^\s*title\s*=\s*\{([^}]+)\}/im);
+
+  if (!match) {
+    return "";
+  }
+
+  return match[1].replace(/\s+/g, " ").trim();
 }
 
 function createCrossrefTitleVariants(pageTitle) {
@@ -565,6 +607,16 @@ async function fetchJson(url) {
   return response.json();
 }
 
+async function fetchText(url) {
+  const response = await fetch(url);
+
+  if (!response.ok) {
+    throw new Error("Request failed with status " + response.status);
+  }
+
+  return response.text();
+}
+
 async function openInSciHub(value) {
   const baseUrl = await getSciHubBaseUrl();
   const targetUrl = baseUrl + "/" + encodeSciHubPath(value);
@@ -613,7 +665,10 @@ if (typeof module === "object" && module.exports) {
   module.exports = {
     cleanJstorTitleForCrossref,
     createCrossrefTitleVariants,
+    extractJstorCitationTitle,
+    extractJstorStableId,
     findDoiViaCrossref,
+    findDoiViaJstorStableUrl,
     pickBestCrossrefDoi
   };
 }
