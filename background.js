@@ -461,22 +461,45 @@ function canonicalizeArxivUrl(value) {
     }
 
     const path = url.pathname || "";
-    const absMatch = path.match(/\/abs\/([^/?#]+)/i);
+    const absMatch = path.match(/^\/abs\/(.+)$/i);
 
     if (absMatch) {
-      return "https://arxiv.org/abs/" + absMatch[1];
+      return canonicalizeArxivId(absMatch[1]);
     }
 
-    const pdfMatch = path.match(/\/pdf\/([^/?#]+?)(?:\.pdf)?$/i);
+    const pdfMatch = path.match(/^\/pdf\/(.+)$/i);
 
     if (pdfMatch) {
-      return "https://arxiv.org/abs/" + pdfMatch[1];
+      return canonicalizeArxivId(pdfMatch[1]);
     }
   } catch (_error) {
     return null;
   }
 
   return null;
+}
+
+function canonicalizeArxivId(value) {
+  let candidate = String(value || "").replace(/^\/+|\/+$/g, "").trim();
+
+  if (!candidate) {
+    return null;
+  }
+
+  candidate = candidate.replace(/\.pdf$/i, "");
+
+  if (!isValidArxivId(candidate)) {
+    return null;
+  }
+
+  return "https://arxiv.org/abs/" + candidate;
+}
+
+function isValidArxivId(value) {
+  const candidate = String(value || "");
+
+  return /^\d{4}\.\d{4,5}(?:v\d+)?$/i.test(candidate) ||
+    /^[a-z][a-z0-9-]*(?:\.[A-Z][A-Z0-9-]*)?\/\d{7}(?:v\d+)?$/.test(candidate);
 }
 
 async function findArxivViaSearch(pageTitle, authors) {
@@ -669,6 +692,7 @@ if (typeof module === "object" && module.exports) {
     extractJstorStableId,
     findDoiViaCrossref,
     findDoiViaJstorStableUrl,
+    canonicalizeArxivUrl,
     pickBestCrossrefDoi
   };
 }
