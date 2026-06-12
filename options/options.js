@@ -1,10 +1,14 @@
 const SCIHUB_BASE_KEY = "sciHubBaseUrl";
 const DEFAULT_SCIHUB_BASE_URL = "https://sci-hub.ru";
+const LIBGEN_SEARCH_BASE_KEY = "libGenSearchBaseUrl";
+const DEFAULT_LIBGEN_SEARCH_BASE_URL = "https://libgen.li/index.php?req=";
 
 const form = document.getElementById("settings-form");
-const input = document.getElementById("scihub-base-url");
+const sciHubInput = document.getElementById("scihub-base-url");
+const libGenInput = document.getElementById("libgen-search-base-url");
 const statusNode = document.getElementById("status");
-const resetButton = document.getElementById("reset-default");
+const resetSciHubButton = document.getElementById("reset-scihub-default");
+const resetLibGenButton = document.getElementById("reset-libgen-default");
 
 initialize().catch(function (error) {
   renderStatus(error.message || "Could not load settings.", "error");
@@ -17,24 +21,37 @@ form.addEventListener("submit", function (event) {
   });
 });
 
-resetButton.addEventListener("click", function () {
-  input.value = DEFAULT_SCIHUB_BASE_URL;
-  renderStatus("Reset to the default mirror. Save to apply it.", "success");
+resetSciHubButton.addEventListener("click", function () {
+  sciHubInput.value = DEFAULT_SCIHUB_BASE_URL;
+  renderStatus("Reset Sci-Hub to the default mirror. Save to apply it.", "success");
+});
+
+resetLibGenButton.addEventListener("click", function () {
+  libGenInput.value = DEFAULT_LIBGEN_SEARCH_BASE_URL;
+  renderStatus("Reset LibGen to the default search. Save to apply it.", "success");
 });
 
 async function initialize() {
-  const stored = await browser.storage.local.get(SCIHUB_BASE_KEY);
-  input.value = normalizeBaseUrl(stored[SCIHUB_BASE_KEY] || DEFAULT_SCIHUB_BASE_URL);
+  const stored = await browser.storage.local.get([
+    SCIHUB_BASE_KEY,
+    LIBGEN_SEARCH_BASE_KEY
+  ]);
+
+  sciHubInput.value = normalizeBaseUrl(stored[SCIHUB_BASE_KEY] || DEFAULT_SCIHUB_BASE_URL);
+  libGenInput.value = normalizeSearchBaseUrl(stored[LIBGEN_SEARCH_BASE_KEY] || DEFAULT_LIBGEN_SEARCH_BASE_URL);
 }
 
 async function saveSettings() {
-  const normalized = normalizeBaseUrl(input.value);
+  const normalizedSciHub = normalizeBaseUrl(sciHubInput.value);
+  const normalizedLibGen = normalizeSearchBaseUrl(libGenInput.value);
 
   await browser.storage.local.set({
-    [SCIHUB_BASE_KEY]: normalized
+    [SCIHUB_BASE_KEY]: normalizedSciHub,
+    [LIBGEN_SEARCH_BASE_KEY]: normalizedLibGen
   });
 
-  input.value = normalized;
+  sciHubInput.value = normalizedSciHub;
+  libGenInput.value = normalizedLibGen;
   renderStatus("Saved.", "success");
 }
 
@@ -47,6 +64,17 @@ function normalizeBaseUrl(value) {
   }
 
   return parsed.href.replace(/\/+$/, "");
+}
+
+function normalizeSearchBaseUrl(value) {
+  const candidate = String(value || "").trim();
+  const parsed = new URL(candidate);
+
+  if (!/^https?:$/i.test(parsed.protocol)) {
+    throw new Error("Use an absolute HTTP or HTTPS URL.");
+  }
+
+  return parsed.href;
 }
 
 function renderStatus(message, state) {

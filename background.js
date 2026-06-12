@@ -1,5 +1,7 @@
 const SCIHUB_BASE_KEY = "sciHubBaseUrl";
 const DEFAULT_SCIHUB_BASE_URL = "https://sci-hub.ru";
+const LIBGEN_SEARCH_BASE_KEY = "libGenSearchBaseUrl";
+const DEFAULT_LIBGEN_SEARCH_BASE_URL = "https://libgen.li/index.php?req=";
 const MENU_OPEN_LINK = "open-link-in-scihub";
 const MENU_OPEN_SELECTION = "open-selection-in-scihub";
 const DoiApi = typeof DoiCore !== "undefined"
@@ -48,15 +50,23 @@ async function initialize() {
 }
 
 async function ensureDefaultSettings() {
-  const stored = await browser.storage.local.get(SCIHUB_BASE_KEY);
+  const stored = await browser.storage.local.get([
+    SCIHUB_BASE_KEY,
+    LIBGEN_SEARCH_BASE_KEY
+  ]);
+  const defaults = {};
 
-  if (stored[SCIHUB_BASE_KEY]) {
-    return;
+  if (!stored[SCIHUB_BASE_KEY]) {
+    defaults[SCIHUB_BASE_KEY] = DEFAULT_SCIHUB_BASE_URL;
   }
 
-  await browser.storage.local.set({
-    [SCIHUB_BASE_KEY]: DEFAULT_SCIHUB_BASE_URL
-  });
+  if (!stored[LIBGEN_SEARCH_BASE_KEY]) {
+    defaults[LIBGEN_SEARCH_BASE_KEY] = DEFAULT_LIBGEN_SEARCH_BASE_URL;
+  }
+
+  if (Object.keys(defaults).length > 0) {
+    await browser.storage.local.set(defaults);
+  }
 }
 
 async function rebuildMenus() {
@@ -83,6 +93,19 @@ async function handleToolbarClick(tab) {
 
   const pageData = await requestPageExtraction(tab.id);
   const resolvedDoi = await resolvePageDoi(pageData, tab.url);
+  const publicationKind = await resolvePublicationKind(pageData, resolvedDoi);
+
+  if (publicationKind === "book") {
+    const query = buildLibGenSearchQuery(pageData, resolvedDoi);
+
+    if (!query) {
+      await notifyUser("This looks like a book, but no title, ISBN, or DOI was found for LibGen search.");
+      return;
+    }
+
+    await openInLibGen(query);
+    return;
+  }
 
   const sciHubValue = resolvedDoi
     ? resolvedDoi
@@ -99,6 +122,148 @@ async function handleToolbarClick(tab) {
 
   await openInSciHub(sciHubValue);
   openArxivWhenResolved(pageDataWithDoi(pageData, resolvedDoi));
+}
+
+async function resolvePublicationKind(pageData, doi) {
+  const pageKind = classifyPagePublication(pageData);
+
+  if (pageKind) {
+    return pageKind;
+  }
+
+  if (!doi) {
+    return null;
+  }
+
+  const crossrefKind = await findPublicationKindViaCrossref(doi);
+  return crossrefKind;
+}
+
+function classifyPagePublication(pageData) {
+  const publication = pageData && pageData.publication ? pageData.publication : {};
+  const types = Array.isArray(publication.types) ? publication.types : [];
+  const isbns = Array.isArray(publication.isbns) ? publication.isbns : [];
+
+  if (types.some(isBookLikePublicationType)) {
+    return "book";
+  }
+
+  if (types.some(isPaperLikePublicationType)) {
+    return "paper";
+  }
+
+  if (isbns.length > 0) {
+    return "book";
+  }
+
+  return null;
+}
+
+function isBookLikePublicationType(value) {
+  const normalized = normalizePublicationType(value);
+
+  return [
+    "book",
+    "book chapter",
+    "book part",
+    "book section",
+    "book series",
+    "book set",
+    "book track",
+    "bookchapter",
+    "bookpart",
+    "booksection",
+    "chapter",
+    "edited book",
+    "editedbook",
+    "monograph",
+    "reference book",
+    "reference entry",
+    "referencebook",
+    "referenceentry",
+    "scholarlyarticle book"
+  ].indexOf(normalized) !== -1;
+}
+
+function isPaperLikePublicationType(value) {
+  const normalized = normalizePublicationType(value);
+
+  return [
+    "article",
+    "journal article",
+    "journalarticle",
+    "research article",
+    "researcharticle",
+    "scholarly article",
+    "scholarlyarticle",
+    "proceedings article",
+    "proceedingsarticle",
+    "conference paper",
+    "conferencepaper",
+    "preprint",
+    "posted content",
+    "postedcontent"
+  ].indexOf(normalized) !== -1;
+}
+
+function normalizePublicationType(value) {
+  return String(value || "")
+    .replace(/^https?:\/\/schema\.org\//i, "")
+    .replace(/^https?:\/\/purl\.org\/ontology\/bibo\//i, "")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+async function findPublicationKindViaCrossref(doi) {
+  const endpoint = "https://api.crossref.org/works/" +
+    encodeURIComponent(doi);
+
+  try {
+    const payload = await fetchJson(endpoint);
+    const item = payload && payload.message ? payload.message : {};
+    const types = item.type ? [item.type] : [];
+    const isbns = Array.isArray(item.ISBN) ? item.ISBN : [];
+
+    return classifyPagePublication({
+      publication: {
+        types: types,
+        isbns: isbns
+      }
+    });
+  } catch (error) {
+    console.warn("Crossref publication type lookup failed", error);
+    return null;
+  }
+}
+
+function buildLibGenSearchQuery(pageData, doi) {
+  const publication = pageData && pageData.publication ? pageData.publication : {};
+  const isbns = Array.isArray(publication.isbns) ? publication.isbns : [];
+
+  if (isbns.length > 0) {
+    return isbns[0];
+  }
+
+  const parts = [];
+  const title = pageData && pageData.pageTitle ? String(pageData.pageTitle).trim() : "";
+  const authors = pageData && Array.isArray(pageData.authors) ? pageData.authors : [];
+
+  if (title) {
+    parts.push(title);
+  }
+
+  if (authors.length > 0) {
+    parts.push(authors[0]);
+  }
+
+  if (parts.length > 0) {
+    return parts.join(" ");
+  }
+
+  return doi || "";
 }
 
 async function resolvePageDoi(pageData, tabUrl) {
@@ -647,9 +812,21 @@ async function openInSciHub(value) {
   await openUrl(targetUrl);
 }
 
+async function openInLibGen(query) {
+  const baseUrl = await getLibGenSearchBaseUrl();
+  const targetUrl = buildSearchUrl(baseUrl, query);
+
+  await openUrl(targetUrl);
+}
+
 async function getSciHubBaseUrl() {
   const stored = await browser.storage.local.get(SCIHUB_BASE_KEY);
   return normalizeBaseUrl(stored[SCIHUB_BASE_KEY] || DEFAULT_SCIHUB_BASE_URL);
+}
+
+async function getLibGenSearchBaseUrl() {
+  const stored = await browser.storage.local.get(LIBGEN_SEARCH_BASE_KEY);
+  return normalizeSearchBaseUrl(stored[LIBGEN_SEARCH_BASE_KEY] || DEFAULT_LIBGEN_SEARCH_BASE_URL);
 }
 
 function normalizeBaseUrl(value) {
@@ -661,6 +838,28 @@ function normalizeBaseUrl(value) {
   }
 
   return parsed.href.replace(/\/+$/, "");
+}
+
+function normalizeSearchBaseUrl(value) {
+  const candidate = String(value || DEFAULT_LIBGEN_SEARCH_BASE_URL).trim();
+  const parsed = new URL(candidate);
+
+  if (!/^https?:$/i.test(parsed.protocol)) {
+    throw new Error("Search base URL must use HTTP or HTTPS.");
+  }
+
+  return parsed.href;
+}
+
+function buildSearchUrl(baseUrl, query) {
+  const encodedQuery = encodeURIComponent(String(query || "").trim());
+  const normalizedBaseUrl = normalizeSearchBaseUrl(baseUrl);
+
+  if (normalizedBaseUrl.indexOf("{query}") !== -1) {
+    return normalizedBaseUrl.replace(/\{query\}/g, encodedQuery);
+  }
+
+  return normalizedBaseUrl + encodedQuery;
 }
 
 function encodeSciHubPath(value) {
@@ -686,13 +885,22 @@ async function notifyUser(message) {
 
 if (typeof module === "object" && module.exports) {
   module.exports = {
+    buildLibGenSearchQuery,
+    buildSearchUrl,
     cleanJstorTitleForCrossref,
     createCrossrefTitleVariants,
     extractJstorCitationTitle,
     extractJstorStableId,
     findDoiViaCrossref,
     findDoiViaJstorStableUrl,
+    findPublicationKindViaCrossref,
+    isBookLikePublicationType,
+    isPaperLikePublicationType,
     canonicalizeArxivUrl,
+    classifyPagePublication,
+    normalizePublicationType,
+    resolvePageDoi,
+    resolvePublicationKind,
     pickBestCrossrefDoi
   };
 }

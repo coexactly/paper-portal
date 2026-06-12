@@ -24,7 +24,8 @@ function collectPageData() {
 
   return Object.assign({}, extraction, {
     pageTitle: extractBestTitle(snapshot.meta, isJstorStablePage),
-    authors: extractAuthors(snapshot.meta)
+    authors: extractAuthors(snapshot.meta),
+    publication: extractPublicationMetadata(snapshot.meta)
   });
 }
 
@@ -260,6 +261,108 @@ function collectJsonLdAuthors(node, authors) {
   if (node["@graph"]) {
     collectJsonLdAuthors(node["@graph"], authors);
   }
+}
+
+function extractPublicationMetadata(metaEntries) {
+  const publication = {
+    types: [],
+    isbns: []
+  };
+  const typeSeen = new Set();
+  const isbnSeen = new Set();
+
+  for (const entry of metaEntries) {
+    const key = String(entry.name || entry.property || entry.httpEquiv || "").trim().toLowerCase();
+    const content = String(entry.content || "").replace(/\s+/g, " ").trim();
+
+    if (!content) {
+      continue;
+    }
+
+    if (/^(citation_publication_type|dc\.type|prism\.publicationtype|og:type)$/i.test(key)) {
+      pushUnique(publication.types, typeSeen, content);
+    }
+
+    if (/(^|\.|_)(isbn|eisbn)$/i.test(key) || /\bisbn\b/i.test(key)) {
+      for (const isbn of extractIsbns(content)) {
+        pushUnique(publication.isbns, isbnSeen, isbn);
+      }
+    }
+  }
+
+  for (const scriptNode of document.querySelectorAll("script[type='application/ld+json']")) {
+    collectPublicationFromJsonLd(scriptNode.textContent || "", publication, typeSeen, isbnSeen);
+  }
+
+  return publication;
+}
+
+function collectPublicationFromJsonLd(rawText, publication, typeSeen, isbnSeen) {
+  try {
+    const parsed = JSON.parse(rawText);
+    collectPublicationNode(parsed, publication, typeSeen, isbnSeen);
+  } catch (_error) {
+    return;
+  }
+}
+
+function collectPublicationNode(node, publication, typeSeen, isbnSeen) {
+  if (!node || typeof node !== "object") {
+    return;
+  }
+
+  if (Array.isArray(node)) {
+    for (const entry of node) {
+      collectPublicationNode(entry, publication, typeSeen, isbnSeen);
+    }
+    return;
+  }
+
+  if (node["@type"]) {
+    const types = Array.isArray(node["@type"]) ? node["@type"] : [node["@type"]];
+
+    for (const type of types) {
+      pushUnique(publication.types, typeSeen, type);
+    }
+  }
+
+  const isbnValues = []
+    .concat(node.isbn || [])
+    .concat(node.isbn13 || [])
+    .concat(node.isbn10 || []);
+
+  for (const value of isbnValues) {
+    for (const isbn of extractIsbns(value)) {
+      pushUnique(publication.isbns, isbnSeen, isbn);
+    }
+  }
+
+  if (node["@graph"]) {
+    collectPublicationNode(node["@graph"], publication, typeSeen, isbnSeen);
+  }
+}
+
+function extractIsbns(value) {
+  const text = String(value || "");
+  const matches = text.match(/(?:97[89][-\s]?)?(?:\d[-\s]?){9,12}[\dXx]/g) || [];
+
+  return matches.map(function (match) {
+    return match.replace(/[-\s]/g, "").toUpperCase();
+  }).filter(function (isbn) {
+    return isbn.length === 10 || isbn.length === 13;
+  });
+}
+
+function pushUnique(list, seen, value) {
+  const normalized = String(value || "").replace(/\s+/g, " ").trim();
+  const key = normalized.toLowerCase();
+
+  if (!normalized || seen.has(key)) {
+    return;
+  }
+
+  seen.add(key);
+  list.push(normalized);
 }
 
 function pushAuthorCandidate(authors, seen, value) {

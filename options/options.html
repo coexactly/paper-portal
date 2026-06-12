@@ -12,7 +12,7 @@
         <p class="eyebrow">Paper portal</p>
         <h1>Mirror Settings</h1>
         <p class="intro">
-          Set the Sci-Hub base URL this extension should use when opening a DOI or fallback URL.
+          Set the Sci-Hub mirror for papers and the LibGen search URL for book-like pages.
         </p>
 
         <form id="settings-form" novalidate>
@@ -28,9 +28,22 @@
             >
           </label>
 
+          <label class="field" for="libgen-search-base-url">
+            <span>LibGen search URL</span>
+            <input
+              id="libgen-search-base-url"
+              name="libgen-search-base-url"
+              type="url"
+              inputmode="url"
+              placeholder="https://libgen.li/index.php?req="
+              required
+            >
+          </label>
+
           <div class="actions">
             <button type="submit">Save</button>
-            <button id="reset-default" type="button" class="secondary">Reset Default</button>
+            <button id="reset-scihub-default" type="button" class="secondary">Reset Sci-Hub</button>
+            <button id="reset-libgen-default" type="button" class="secondary">Reset LibGen</button>
           </div>
         </form>
 
