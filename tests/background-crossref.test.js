@@ -10,6 +10,7 @@ async function run() {
   testJstorTitleVariants();
   testJstorStableIdExtraction();
   await testSpringerReferenceWorkResolvesAsBookViaCrossref();
+  await testInspireRecordWithoutMainDoiDoesNotUseReferenceDoi();
   await testJstorStableTitleResolvesViaCrossref();
   await testJstorStableUrlResolvesViaCitationEndpoint();
   console.log("All background Crossref tests passed.");
@@ -114,6 +115,33 @@ async function testSpringerReferenceWorkResolvesAsBookViaCrossref() {
 
   assert.equal(doi, "10.1007/978-981-99-7681-2");
   assert.equal(kind, "book");
+}
+
+async function testInspireRecordWithoutMainDoiDoesNotUseReferenceDoi() {
+  const inspireUrl = "https://inspirehep.net/literature/317332";
+  const pageData = DoiCore.extractFromSnapshot({
+    currentUrl: inspireUrl,
+    meta: [],
+    links: [],
+    textBlocks: [
+      {
+        text: "References include https://doi.org/10.1016/0550-3213(90)90309-B",
+        sourceType: "structured_text",
+        originHint: "main"
+      }
+    ],
+    fallbackTextBlocks: [
+      {
+        text: "References include https://doi.org/10.1016/0550-3213(90)90309-B",
+        sourceType: "text",
+        originHint: "body"
+      }
+    ]
+  });
+  const doi = await Background.resolvePageDoi(pageData, inspireUrl);
+
+  assert.equal(pageData.bestCandidate, null);
+  assert.equal(doi, null);
 }
 
 run().catch(function (error) {

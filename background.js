@@ -275,9 +275,63 @@ async function resolvePageDoi(pageData, tabUrl) {
 
   const currentUrl = pageData && pageData.currentUrl ? pageData.currentUrl : tabUrl;
 
+  if (DoiApi.isInspireLiteratureUrl(currentUrl)) {
+    return await findDoiViaInspireLiteratureUrl(currentUrl);
+  }
+
   if (DoiApi.isJstorStableUrl(currentUrl)) {
     return await findDoiViaCrossref(pageData && pageData.pageTitle) ||
       findDoiViaJstorStableUrl(currentUrl);
+  }
+
+  return null;
+}
+
+async function findDoiViaInspireLiteratureUrl(currentUrl) {
+  const recordId = extractInspireLiteratureId(currentUrl);
+
+  if (!recordId) {
+    return null;
+  }
+
+  try {
+    const payload = await fetchJson("https://inspirehep.net/api/literature/" + encodeURIComponent(recordId));
+    return extractInspireRecordDoi(payload);
+  } catch (error) {
+    console.warn("INSPIRE DOI lookup failed", error);
+    return null;
+  }
+}
+
+function extractInspireLiteratureId(currentUrl) {
+  if (!currentUrl) {
+    return "";
+  }
+
+  try {
+    const url = new URL(String(currentUrl));
+
+    if (!/(^|\.)inspirehep\.net$/i.test(url.hostname)) {
+      return "";
+    }
+
+    const match = url.pathname.match(/^\/literature\/(\d+)/i);
+    return match ? match[1] : "";
+  } catch (_error) {
+    return "";
+  }
+}
+
+function extractInspireRecordDoi(payload) {
+  const metadata = payload && payload.metadata ? payload.metadata : {};
+  const doiEntries = Array.isArray(metadata.dois) ? metadata.dois : [];
+
+  for (const entry of doiEntries) {
+    const doi = DoiApi.normalizeDoi(entry && entry.value);
+
+    if (doi) {
+      return doi;
+    }
   }
 
   return null;
@@ -889,8 +943,11 @@ if (typeof module === "object" && module.exports) {
     buildSearchUrl,
     cleanJstorTitleForCrossref,
     createCrossrefTitleVariants,
+    extractInspireLiteratureId,
+    extractInspireRecordDoi,
     extractJstorCitationTitle,
     extractJstorStableId,
+    findDoiViaInspireLiteratureUrl,
     findDoiViaCrossref,
     findDoiViaJstorStableUrl,
     findPublicationKindViaCrossref,

@@ -10,6 +10,7 @@ function run() {
   testMetaBeatsCurrentUrl();
   testFallbackTextOnlyWhenNeeded();
   testJstorStableUrlSuppressesLooseDoiEvidence();
+  testInspireLiteratureUrlSuppressesLooseDoiEvidence();
   testMetaBeatsReferenceLink();
   testAggregatedSignalsBeatSingleWeakSignal();
   testTitleNormalization();
@@ -105,6 +106,37 @@ function testFallbackTextOnlyWhenNeeded() {
 function testJstorStableUrlSuppressesLooseDoiEvidence() {
   const result = DoiCore.extractFromSnapshot({
     currentUrl: "https://www.jstor.org/stable/48662152",
+    meta: [],
+    links: [
+      {
+        href: "https://doi.org/10.9999/reference.4",
+        text: "Reference DOI",
+        originHint: "body-link"
+      }
+    ],
+    textBlocks: [
+      {
+        text: "References 10.9999/reference.4",
+        sourceType: "structured_text",
+        originHint: "main"
+      }
+    ],
+    fallbackTextBlocks: [
+      {
+        text: "References 10.9999/reference.5",
+        sourceType: "text",
+        originHint: "body"
+      }
+    ]
+  });
+
+  assert.equal(result.bestCandidate, null);
+  assert.equal(result.evidenceCount, 0);
+}
+
+function testInspireLiteratureUrlSuppressesLooseDoiEvidence() {
+  const result = DoiCore.extractFromSnapshot({
+    currentUrl: "https://inspirehep.net/literature/317332",
     meta: [],
     links: [
       {

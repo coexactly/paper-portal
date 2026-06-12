@@ -202,6 +202,19 @@
     }
   }
 
+  function isInspireLiteratureUrl(value) {
+    if (!value) {
+      return false;
+    }
+
+    try {
+      const url = new URL(String(value));
+      return /(^|\.)inspirehep\.net$/i.test(url.hostname) && /^\/literature\/\d+/i.test(url.pathname);
+    } catch (_error) {
+      return false;
+    }
+  }
+
   function scoreEvidence(entry) {
     let score = 0;
 
@@ -275,7 +288,7 @@
     const textBlocks = Array.isArray(snapshot.textBlocks) ? snapshot.textBlocks : [];
     const fallbackTextBlocks = Array.isArray(snapshot.fallbackTextBlocks) ? snapshot.fallbackTextBlocks : [];
     const currentUrlDoi = normalizeDoi(currentUrl);
-    const skipLooseDoiEvidence = isJstorStableUrl(currentUrl);
+    const skipLooseDoiEvidence = isJstorStableUrl(currentUrl) || isInspireLiteratureUrl(currentUrl);
 
     if (currentUrlDoi) {
       pushEvidence(evidence, currentUrlDoi, "current_url", currentUrl, "current-url");
@@ -416,6 +429,7 @@
     extractFromSnapshot,
     extractAuthorSurname,
     findAllDois,
+    isInspireLiteratureUrl,
     isJstorStableUrl,
     normalizeDoi,
     normalizePaperTitle,
